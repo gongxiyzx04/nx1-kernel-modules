@@ -26,18 +26,24 @@ jobs:
     - name: Prepare kernel config
       run: |
         cd common
+        # 1. 用你上传的 config 文件作为初始配置
         cp ../config arch/arm64/configs/nx1_defconfig
         make ARCH=arm64 nx1_defconfig
-        # 开启 Docker 必需的用户和 PID 命名空间支持
-        sed -i 's/^# CONFIG_USER_NS is not set/CONFIG_USER_NS=m/' .config
-        sed -i 's/^# CONFIG_PID_NS is not set/CONFIG_PID_NS=m/' .config
+
+        # 2. 用 scripts/config 工具修改配置，这是内核源码的官方方法
+        ./scripts/config --enable CONFIG_USER_NS
+        ./scripts/config --enable CONFIG_PID_NS
+
+        # 3. 手动同步配置，生成新的 autoconf.h，完全不需要指定额外工具链
+        make ARCH=arm64 syncconfig
+
+        # 4. 检查修改是否成功
+        grep -E 'CONFIG_USER_NS|CONFIG_PID_NS' .config
 
     - name: Build modules
       run: |
         cd common
-        # 同步配置，使用系统默认链接器
-        make ARCH=arm64 olddefconfig
-        # 为 ARM64 交叉编译准备环境和模块，指定 Clang 和 LLD
+        # 使用 Clang + LLD 编译真正的 ARM64 内核模块
         make ARCH=arm64 CC=clang LD=ld.lld LLVM=1 -j$(nproc) modules_prepare
         make ARCH=arm64 CC=clang M=kernel -j$(nproc)
         mkdir -p ../output
