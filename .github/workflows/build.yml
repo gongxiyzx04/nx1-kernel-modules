@@ -16,35 +16,27 @@ jobs:
     - name: Install build dependencies and toolchain
       run: |
         sudo apt-get update -y
-        # 安装编译所需的所有依赖，包括 Clang, LLD 和 ARM64 交叉编译工具链
         sudo apt-get install -y build-essential flex bison bc git wget clang lld gcc-aarch64-linux-gnu
 
     - name: Clone Android Common Kernel
       run: |
-        # 使用清华大学开源软件镜像站克隆源码，速度飞快
-        git clone --depth=1 -b android15-6.6 https://mirrors.tuna.tsinghua.edu.cn/git/AOSP/kernel/common.git
+        # GitHub Actions 的服务器访问谷歌源非常快
+        git clone --depth=1 -b android15-6.6 https://android.googlesource.com/kernel/common.git
         cd common
 
     - name: Prepare kernel config
       run: |
         cd common
-        # 1. 用你上传的 config 文件作为初始配置
         cp ../config arch/arm64/configs/nx1_defconfig
         make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- nx1_defconfig
-
-        # 2. 用内核自带的 scripts/config 工具安全地修改配置
         ./scripts/config --enable CONFIG_USER_NS
         ./scripts/config --enable CONFIG_PID_NS
 
     - name: Build modules
       run: |
         cd common
-        # 3. 使用系统安装的 Clang 和 LLD 进行编译
-        # 注意：这里去掉了 CC=clang，因为在 Ubuntu 上直接调用 clang 会自动找到系统路径中的版本
         make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld LLVM=1 -j$(nproc) olddefconfig modules_prepare
         make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- M=kernel -j$(nproc)
-        
-        # 4. 收集编译产物
         mkdir -p ../output
         cp kernel/user_namespace.ko ../output/ 2>/dev/null || echo "Warning: user_namespace.ko not found"
         cp kernel/pid_namespace.ko ../output/ 2>/dev/null || echo "Warning: pid_namespace.ko not found"
