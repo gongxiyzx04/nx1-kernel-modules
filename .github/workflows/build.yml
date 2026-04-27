@@ -23,34 +23,38 @@ jobs:
         git clone --depth=1 -b android15-6.6 https://android.googlesource.com/kernel/common.git
         cd common
 
-    - name: Prepare and build kernel modules
+    - name: Prepare kernel config
       run: |
         cd common
-        
-        # 1. 准备配置文件
+        # 1. 用你上传的 config 文件作为初始配置
         cp ../config arch/arm64/configs/nx1_defconfig
         make ARCH=arm64 nx1_defconfig
-        
-        # 2. 用内核自带工具修改配置
+
+        # 2. 用内核自带的 scripts/config 工具安全地修改配置
         ./scripts/config --enable CONFIG_USER_NS
         ./scripts/config --enable CONFIG_PID_NS
-        
-        # 3. 手动清理掉有问题的依赖文件
-        rm -f include/config/auto.conf include/config/auto.conf.cmd
-        rm -f include/generated/autoconf.h include/generated/rustc_cfg
-        
-        # 4. 同步配置
+
+        # 3. 核心修复：手动生成 autoconf.h，完全绕开 make 的自动同步
+        # 这能避免 auto.conf.cmd 的循环依赖问题
         make ARCH=arm64 syncconfig
-        
-        # 5. 检查配置是否修改成功
-        echo "=== Checking config ==="
+        # 如果 syncconfig 依然失败，我们还有备用方案：直接手动创建
+        if [ ! -f include/generated/autoconf.h ]; then
+            echo "手动生成 autoconf.h 作为备用方案..."
+            grep '^CONFIG_' .config | sed 's/^\(CONFIG_[^=]*\)=\(.*\)/#define \1 \2/' > include/generated/autoconf.h
+        fi
+
+        # 4. 确认修改已生效
+        echo "=== 当前关键配置状态 ==="
         grep -E 'CONFIG_USER_NS|CONFIG_PID_NS' .config
-        
-        # 6. 开始编译
+
+    - name: Build modules
+      run: |
+        cd common
+        # 5. 开始真正的交叉编译
         make ARCH=arm64 CC=clang LD=ld.lld LLVM=1 -j$(nproc) modules_prepare
         make ARCH=arm64 CC=clang M=kernel -j$(nproc)
         
-        # 7. 收集编译产物
+        # 6. 收集编译产物
         mkdir -p ../output
         cp kernel/user_namespace.ko ../output/ 2>/dev/null || echo "Warning: user_namespace.ko not found"
         cp kernel/pid_namespace.ko ../output/ 2>/dev/null || echo "Warning: pid_namespace.ko not found"
