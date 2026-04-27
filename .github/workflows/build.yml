@@ -18,30 +18,45 @@ jobs:
         sudo apt-get update -y
         sudo apt-get install -y build-essential flex bison bc git wget
 
+    - name: Setup cross-compilation toolchain
+      run: |
+        # 安装完整的 ARM64 交叉编译工具链
+        sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+        # 下载谷歌官方的 Clang 18 工具链
+        wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r510928.tar.gz
+        mkdir -p clang-r510928
+        tar -xzf clang-r510928.tar.gz -C clang-r510928
+        export CLANG_PATH=$(pwd)/clang-r510928/bin
+        echo "CLANG_PATH=$CLANG_PATH" >> $GITHUB_ENV
+        # 将工具链路径加入环境变量
+        echo "$CLANG_PATH" >> $GITHUB_PATH
+
     - name: Clone Android Common Kernel
       run: |
-        git clone --depth=1 -b android15-6.6 https://android.googlesource.com/kernel/common.git
+        # 用清华镜像加速下载
+        git clone --depth=1 -b android15-6.6 https://mirrors.tuna.tsinghua.edu.cn/git/AOSP/kernel/common.git
         cd common
 
     - name: Prepare kernel config
       run: |
         cd common
-        # 1. 用你上传的 config 文件作为初始配置
+        # 用你上传的 config 文件作为初始配置
         cp ../config arch/arm64/configs/nx1_defconfig
-        make ARCH=arm64 nx1_defconfig
+        make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- nx1_defconfig
 
-        # 2. 用内核自带的 scripts/config 工具安全地修改配置
+        # 用内核自带的 scripts/config 工具安全地修改配置
         ./scripts/config --enable CONFIG_USER_NS
         ./scripts/config --enable CONFIG_PID_NS
 
     - name: Build modules
       run: |
         cd common
-        # 3. 重点：用同样的工具链参数，让 make 自己完成配置同步和编译
-        make ARCH=arm64 CC=clang LD=ld.lld LLVM=1 -j$(nproc) olddefconfig modules_prepare
+        export PATH="${{ env.CLANG_PATH }}:$PATH"
+        # 关键修复：统一使用 Clang 工具链，让系统自己完成配置同步和编译
+        make ARCH=arm64 CC=clang LD=ld.lld LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc) olddefconfig modules_prepare
         make ARCH=arm64 CC=clang M=kernel -j$(nproc)
         
-        # 4. 收集编译产物
+        # 收集编译产物
         mkdir -p ../output
         cp kernel/user_namespace.ko ../output/ 2>/dev/null || echo "Warning: user_namespace.ko not found"
         cp kernel/pid_namespace.ko ../output/ 2>/dev/null || echo "Warning: pid_namespace.ko not found"
