@@ -35,12 +35,18 @@ jobs:
     - name: Build modules
       run: |
         cd common
-        # 关键修复：手动触发配置同步，生成新的 autoconf.h
-        make ARCH=arm64 CC=clang LD=ld.lld LLVM=1 olddefconfig
-        # 继续编译
+        # 同步配置，使用系统默认链接器
+        make ARCH=arm64 olddefconfig
+        # 为 ARM64 交叉编译准备环境和模块，指定 Clang 和 LLD
         make ARCH=arm64 CC=clang LD=ld.lld LLVM=1 -j$(nproc) modules_prepare
         make ARCH=arm64 CC=clang M=kernel -j$(nproc)
         mkdir -p ../output
         cp kernel/user_namespace.ko ../output/ 2>/dev/null || echo "Warning: user_namespace.ko not found"
         cp kernel/pid_namespace.ko ../output/ 2>/dev/null || echo "Warning: pid_namespace.ko not found"
         ls -la ../output/
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: nx1-kernel-modules
+        path: output/
