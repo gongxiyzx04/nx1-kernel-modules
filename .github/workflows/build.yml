@@ -23,29 +23,34 @@ jobs:
         git clone --depth=1 -b android15-6.6 https://android.googlesource.com/kernel/common.git
         cd common
 
-    - name: Prepare kernel config
+    - name: Prepare and build kernel modules
       run: |
         cd common
-        # 1. 用你上传的 config 文件作为初始配置
+        
+        # 1. 准备配置文件
         cp ../config arch/arm64/configs/nx1_defconfig
         make ARCH=arm64 nx1_defconfig
-
-        # 2. 用 scripts/config 工具修改配置，这是内核源码的官方方法
+        
+        # 2. 用内核自带工具修改配置
         ./scripts/config --enable CONFIG_USER_NS
         ./scripts/config --enable CONFIG_PID_NS
-
-        # 3. 手动同步配置，生成新的 autoconf.h，完全不需要指定额外工具链
+        
+        # 3. 手动清理掉有问题的依赖文件
+        rm -f include/config/auto.conf include/config/auto.conf.cmd
+        rm -f include/generated/autoconf.h include/generated/rustc_cfg
+        
+        # 4. 同步配置
         make ARCH=arm64 syncconfig
-
-        # 4. 检查修改是否成功
+        
+        # 5. 检查配置是否修改成功
+        echo "=== Checking config ==="
         grep -E 'CONFIG_USER_NS|CONFIG_PID_NS' .config
-
-    - name: Build modules
-      run: |
-        cd common
-        # 使用 Clang + LLD 编译真正的 ARM64 内核模块
+        
+        # 6. 开始编译
         make ARCH=arm64 CC=clang LD=ld.lld LLVM=1 -j$(nproc) modules_prepare
         make ARCH=arm64 CC=clang M=kernel -j$(nproc)
+        
+        # 7. 收集编译产物
         mkdir -p ../output
         cp kernel/user_namespace.ko ../output/ 2>/dev/null || echo "Warning: user_namespace.ko not found"
         cp kernel/pid_namespace.ko ../output/ 2>/dev/null || echo "Warning: pid_namespace.ko not found"
