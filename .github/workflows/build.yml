@@ -31,19 +31,6 @@ jobs:
         sed -i 's/^# CONFIG_USER_NS is not set/CONFIG_USER_NS=m/' .config
         sed -i 's/^# CONFIG_PID_NS is not set/CONFIG_PID_NS=m/' .config
 
-    - name: Fix known header issues
-      run: |
-        cd common
-        mkdir -p arch/arm64/include/asm/
-        if [ ! -f arch/arm64/include/asm/elf.h ]; then
-          cat > arch/arm64/include/asm/elf.h << 'EOF'
-#ifndef __ASM_ELF_H
-#define __ASM_ELF_H
-#include <asm-generic/elf.h>
-#endif
-EOF
-        fi
-
     - name: Build modules
       run: |
         cd common
