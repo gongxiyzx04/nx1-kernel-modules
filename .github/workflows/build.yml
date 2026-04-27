@@ -1,0 +1,60 @@
+name: Build Kernel Modules for NX1
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update -y
+        sudo apt-get install -y build-essential flex bison bc git wget
+
+    - name: Clone Android Common Kernel
+      run: |
+        git clone --depth=1 -b android15-6.6 https://android.googlesource.com/kernel/common.git
+        cd common
+
+    - name: Prepare kernel config
+      run: |
+        cd common
+        cp ../config arch/arm64/configs/nx1_defconfig
+        make ARCH=arm64 nx1_defconfig
+        sed -i 's/^# CONFIG_USER_NS is not set/CONFIG_USER_NS=m/' .config
+        sed -i 's/^# CONFIG_PID_NS is not set/CONFIG_PID_NS=m/' .config
+
+    - name: Fix known header issues
+      run: |
+        cd common
+        mkdir -p arch/arm64/include/asm/
+        if [ ! -f arch/arm64/include/asm/elf.h ]; then
+          cat > arch/arm64/include/asm/elf.h << 'EOF'
+#ifndef __ASM_ELF_H
+#define __ASM_ELF_H
+#include <asm-generic/elf.h>
+#endif
+EOF
+        fi
+
+    - name: Build modules
+      run: |
+        cd common
+        make ARCH=arm64 CC=clang LD=ld.lld LLVM=1 -j$(nproc) modules_prepare
+        make ARCH=arm64 CC=clang M=kernel -j$(nproc)
+        mkdir -p ../output
+        cp kernel/user_namespace.ko ../output/
+        cp kernel/pid_namespace.ko ../output/
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: nx1-kernel-modules
+        path: output/
